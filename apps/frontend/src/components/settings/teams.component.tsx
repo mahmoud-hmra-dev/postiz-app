@@ -95,7 +95,7 @@ export const AddMember = () => {
       } catch (err) {
         const fallback = t('failed_to_create_team_member', 'Failed to create team member');
         const message = err instanceof Error ? err.message : fallback;
-        toast.show(message || fallback, 'error');
+        toast.show(message || fallback, 'warning');
       }
     },
     [fetch, modals, mutateGlobal, t, toast]
