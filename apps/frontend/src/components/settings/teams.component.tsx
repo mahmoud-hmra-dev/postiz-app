@@ -1,20 +1,18 @@
 import { Button } from '@gitroom/react/form/button';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import React, { useCallback, useMemo } from 'react';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { capitalize } from 'lodash';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { TopTitle } from '@gitroom/frontend/components/launches/helpers/top.title.component';
 import { Input } from '@gitroom/react/form/input';
-import { useForm, FormProvider, useWatch } from 'react-hook-form';
+import { useForm, FormProvider, Controller } from 'react-hook-form';
 import { Select } from '@gitroom/react/form/select';
-import { Checkbox } from '@gitroom/react/form/checkbox';
 import { classValidatorResolver } from '@hookform/resolvers/class-validator';
 import { AddTeamMemberDto } from '@gitroom/nestjs-libraries/dtos/settings/add.team.member.dto';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
-import copy from 'copy-to-clipboard';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 const roles = [
   {
@@ -26,10 +24,19 @@ const roles = [
     value: 'ADMIN',
   },
 ];
+
+type IntegrationOption = {
+  id: string;
+  name: string;
+  display?: string;
+  identifier: string;
+};
+
 export const AddMember = () => {
   const modals = useModals();
   const fetch = useFetch();
   const toast = useToaster();
+  const { mutate: mutateGlobal } = useSWRConfig();
   const resolver = useMemo(() => {
     return classValidatorResolver(AddTeamMemberDto);
   }, []);
@@ -37,48 +44,72 @@ export const AddMember = () => {
     values: {
       email: '',
       role: '',
-      sendEmail: true,
+      password: '',
+      passwordConfirm: '',
+      integrations: [] as string[],
     },
     resolver,
     mode: 'onChange',
   });
-  const sendEmail = useWatch({
-    control: form.control,
-    name: 'sendEmail',
+
+  const loadIntegrations = useCallback(async () => {
+    const response = await fetch('/integrations/list');
+    if (!response.ok) {
+      throw new Error('Failed to load integrations');
+    }
+
+    const data = await response.json();
+    return (data.integrations || []) as IntegrationOption[];
+  }, [fetch]);
+
+  const { data: integrations } = useSWR('/integrations/list', loadIntegrations, {
+    revalidateIfStale: false,
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
   });
-  const submit = useCallback(
-    async (values: { email: string; role: string; sendEmail: boolean }) => {
-      const { url } = await (
-        await fetch('/settings/team', {
-          method: 'POST',
-          body: JSON.stringify(values),
-        })
-      ).json();
-      if (values.sendEmail) {
-        modals.closeAll();
-        toast.show('Invitation link sent');
-        return;
-      }
-      copy(url);
-      modals.closeAll();
-      toast.show('Link copied to clipboard');
-    },
-    []
-  );
 
   const t = useT();
+
+  const submit = useCallback(
+    async (values: {
+      email: string;
+      role: string;
+      password: string;
+      passwordConfirm: string;
+      integrations: string[];
+    }) => {
+      try {
+        const response = await fetch('/settings/team', {
+          method: 'POST',
+          body: JSON.stringify(values),
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error?.message || t('failed_to_create_team_member', 'Failed to create team member'));
+        }
+
+        await mutateGlobal('/api/teams');
+        modals.closeAll();
+        toast.show(t('team_member_created', 'Team member created'), 'success');
+      } catch (err) {
+        const fallback = t('failed_to_create_team_member', 'Failed to create team member');
+        const message = err instanceof Error ? err.message : fallback;
+        toast.show(message || fallback, 'error');
+      }
+    },
+    [fetch, modals, mutateGlobal, t, toast]
+  );
 
   return (
     <FormProvider {...form}>
       <form onSubmit={form.handleSubmit(submit)}>
         <div className="relative flex gap-[10px] flex-col flex-1 p-[16px] pt-0">
-          {sendEmail && (
-            <Input
-              label="Email"
-              placeholder={t('enter_email', 'Enter email')}
-              name="email"
-            />
-          )}
+          <Input
+            label={t('email', 'Email')}
+            placeholder={t('enter_email', 'Enter email')}
+            name="email"
+          />
           <Select label="Role" name="role">
             <option value="">{t('select_role', 'Select Role')}</option>
             {roles.map((role) => (
@@ -87,16 +118,78 @@ export const AddMember = () => {
               </option>
             ))}
           </Select>
-          <div className="flex gap-[5px]">
-            <div>
-              <Checkbox name="sendEmail" />
+          <Input
+            label={t('password', 'Password')}
+            placeholder={t('enter_password', 'Enter password')}
+            name="password"
+            type="password"
+          />
+          <Input
+            label={t('confirm_password', 'Confirm Password')}
+            placeholder={t('confirm_password', 'Confirm Password')}
+            name="passwordConfirm"
+            type="password"
+          />
+          <div className="flex flex-col gap-[8px]">
+            <div className="text-[14px] text-customColor18">
+              {t('select_pages_to_publish', 'Select the pages this member can publish to')}
             </div>
-            <div>
-              {t('send_invitation_via_email', 'Send invitation via email?')}
-            </div>
+            <Controller
+              name="integrations"
+              control={form.control}
+              render={({ field }) => {
+                const selectedIds = Array.isArray(field.value)
+                  ? (field.value as string[])
+                  : [];
+
+                const toggleIntegration = (id: string) => () => {
+                  const current = Array.isArray(field.value)
+                    ? (field.value as string[])
+                    : [];
+                  if (current.includes(id)) {
+                    field.onChange(current.filter((value) => value !== id));
+                    return;
+                  }
+                  field.onChange([...current, id]);
+                };
+
+                return (
+                  <div className="max-h-[200px] overflow-y-auto rounded-[4px] border border-customColor21 p-[12px] flex flex-col gap-[8px]">
+                    {(integrations || []).map((integration) => {
+                      const isChecked = selectedIds.includes(integration.id);
+                      return (
+                        <label
+                          key={integration.id}
+                          className="flex items-center gap-[8px] text-[14px] cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-primary"
+                            checked={isChecked}
+                            onChange={toggleIntegration(integration.id)}
+                            onBlur={field.onBlur}
+                          />
+                          <span>{integration.display || integration.name}</span>
+                        </label>
+                      );
+                    })}
+                    {!(integrations || []).length && (
+                      <div className="text-[14px] text-customColor18">
+                        {t('no_integrations_available', 'No pages available yet')}
+                      </div>
+                    )}
+                  </div>
+                );
+              }}
+            />
+            {form.formState.errors.integrations && (
+              <div className="text-[12px] text-[#F87171]">
+                {form.formState.errors.integrations.message?.toString()}
+              </div>
+            )}
           </div>
           <Button type="submit" className="mt-[18px]">
-            {sendEmail ? 'Send Invitation Link' : 'Copy Link'}
+            {t('create_team_member', 'Create Team Member')}
           </Button>
         </div>
       </form>
@@ -115,14 +208,14 @@ export const TeamsComponent = () => {
   );
   const loadTeam = useCallback(async () => {
     return (await (await fetch('/settings/team')).json()).users as Array<{
-      id: string;
+      allowedIntegrations?: string[];
       role: 'SUPERADMIN' | 'ADMIN' | 'USER';
       user: {
         email: string;
         id: string;
       };
     }>;
-  }, []);
+  }, [fetch]);
   const addMember = useCallback(() => {
     modals.openModal({
       classNames: {

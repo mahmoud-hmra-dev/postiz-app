@@ -3,11 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { OrganizationRepository } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.repository';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import { AddTeamMemberDto } from '@gitroom/nestjs-libraries/dtos/settings/add.team.member.dto';
-import { AuthService } from '@gitroom/helpers/auth/auth.service';
-import dayjs from 'dayjs';
-import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { Organization } from '@prisma/client';
-import { AutopostService } from '@gitroom/nestjs-libraries/database/prisma/autopost/autopost.service';
 
 @Injectable()
 export class OrganizationService {
@@ -70,19 +66,18 @@ export class OrganizationService {
   }
 
   async inviteTeamMember(orgId: string, body: AddTeamMemberDto) {
-    const timeLimit = dayjs().add(1, 'hour').format('YYYY-MM-DD HH:mm:ss');
-    const id = makeId(5);
-    const url =
-      process.env.FRONTEND_URL +
-      `/?org=${AuthService.signJWT({ ...body, orgId, timeLimit, id })}`;
-    if (body.sendEmail) {
-      await this._notificationsService.sendEmail(
-        body.email,
-        'You have been invited to join an organization',
-        `You have been invited to join an organization. Click <a href="${url}">here</a> to join.<br />The link will expire in 1 hour.`
-      );
+    if (body.password !== body.passwordConfirm) {
+      throw new Error('Passwords do not match');
     }
-    return { url };
+
+    await this._organizationRepository.createTeamMember(orgId, {
+      email: body.email,
+      password: body.password,
+      role: body.role as 'USER' | 'ADMIN',
+      integrations: body.integrations,
+    });
+
+    return { success: true };
   }
 
   async deleteTeamMember(org: Organization, userId: string) {
@@ -110,5 +105,9 @@ export class OrganizationService {
       orgId,
       disable
     );
+  }
+
+  getUserOrganization(orgId: string, userId: string) {
+    return this._organizationRepository.getUserOrganization(orgId, userId);
   }
 }

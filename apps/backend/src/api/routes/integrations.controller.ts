@@ -39,6 +39,7 @@ import {
   Sections,
 } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
 import { uniqBy } from 'lodash';
+import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
 
 @ApiTags('Integrations')
 @Controller('/integrations')
@@ -46,7 +47,8 @@ export class IntegrationsController {
   constructor(
     private _integrationManager: IntegrationManager,
     private _integrationService: IntegrationService,
-    private _postService: PostsService
+    private _postService: PostsService,
+    private _organizationService: OrganizationService
   ) {}
   @Get('/')
   getIntegration() {
@@ -86,12 +88,31 @@ export class IntegrationsController {
   }
 
   @Get('/list')
-  async getIntegrationList(@GetOrgFromRequest() org: Organization) {
+  async getIntegrationList(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User
+  ) {
+    const [userOrg, integrations] = await Promise.all([
+      this._organizationService.getUserOrganization(org.id, user.id),
+      this._integrationService.getIntegrationsList(org.id),
+    ]);
+
+    const allowedIntegrationIds =
+      userOrg?.role === 'USER' &&
+      Array.isArray(userOrg.allowedIntegrations) &&
+      (userOrg.allowedIntegrations as unknown[]).length
+        ? new Set(userOrg.allowedIntegrations as string[])
+        : null;
+
+    const visibleIntegrations = allowedIntegrationIds
+      ? integrations.filter((integration) =>
+          allowedIntegrationIds.has(integration.id)
+        )
+      : integrations;
+
     return {
       integrations: await Promise.all(
-        (
-          await this._integrationService.getIntegrationsList(org.id)
-        ).map(async (p) => {
+        visibleIntegrations.map(async (p) => {
           const findIntegration = this._integrationManager.getSocialIntegration(
             p.providerIdentifier
           );

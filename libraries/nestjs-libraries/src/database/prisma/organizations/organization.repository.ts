@@ -1,5 +1,5 @@
 import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { Role, SubscriptionTier } from '@prisma/client';
+import { Provider, Role, SubscriptionTier } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
 import { AuthService } from '@gitroom/helpers/auth/auth.service';
 import { CreateOrgUserDto } from '@gitroom/nestjs-libraries/dtos/auth/create.org.user.dto';
@@ -209,6 +209,80 @@ export class OrganizationRepository {
     return create;
   }
 
+  async createTeamMember(
+    orgId: string,
+    params: {
+      email: string;
+      password: string;
+      role: 'USER' | 'ADMIN';
+      integrations: string[];
+    }
+  ) {
+    const uniqueIntegrations = Array.from(new Set(params.integrations));
+
+    const existingUser = await this._user.model.user.findFirst({
+      where: {
+        email: params.email,
+        providerName: Provider.LOCAL,
+      },
+    });
+
+    if (existingUser) {
+      const alreadyInOrg = await this._userOrg.model.userOrganization.findFirst({
+        where: {
+          organizationId: orgId,
+          userId: existingUser.id,
+        },
+      });
+
+      if (alreadyInOrg) {
+        throw new Error('User is already part of this organization');
+      }
+
+      await this._user.model.user.update({
+        where: {
+          id: existingUser.id,
+        },
+        data: {
+          password: AuthService.hashPassword(params.password),
+          activated: true,
+        },
+      });
+
+      await this._userOrg.model.userOrganization.create({
+        data: {
+          role: params.role,
+          userId: existingUser.id,
+          organizationId: orgId,
+          allowedIntegrations: uniqueIntegrations,
+        },
+      });
+
+      return existingUser.id;
+    }
+
+    const createdUser = await this._user.model.user.create({
+      data: {
+        email: params.email,
+        providerName: Provider.LOCAL,
+        password: AuthService.hashPassword(params.password),
+        timezone: 0,
+        activated: true,
+      },
+    });
+
+    await this._userOrg.model.userOrganization.create({
+      data: {
+        role: params.role,
+        userId: createdUser.id,
+        organizationId: orgId,
+        allowedIntegrations: uniqueIntegrations,
+      },
+    });
+
+    return createdUser.id;
+  }
+
   async createOrgAndUser(
     body: Omit<CreateOrgUserDto, 'providerToken'> & { providerId?: string },
     hasEmail: boolean,
@@ -269,6 +343,7 @@ export class OrganizationRepository {
         users: {
           select: {
             role: true,
+            allowedIntegrations: true,
             user: {
               select: {
                 email: true,
@@ -277,6 +352,21 @@ export class OrganizationRepository {
             },
           },
         },
+      },
+    });
+  }
+
+  getUserOrganization(orgId: string, userId: string) {
+    return this._userOrg.model.userOrganization.findUnique({
+      where: {
+        userId_organizationId: {
+          organizationId: orgId,
+          userId,
+        },
+      },
+      select: {
+        allowedIntegrations: true,
+        role: true,
       },
     });
   }
