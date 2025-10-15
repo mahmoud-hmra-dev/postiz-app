@@ -1,16 +1,16 @@
 import {
-  IsBoolean,
+  ArrayNotEmpty,
+  IsArray,
   IsDefined,
   IsEmail,
   IsIn,
   IsString,
-  ValidateIf,
+  MinLength,
 } from 'class-validator';
 
 export class AddTeamMemberDto {
   @IsDefined()
   @IsEmail()
-  @ValidateIf((o) => o.sendEmail)
   email: string;
 
   @IsString()
@@ -18,6 +18,18 @@ export class AddTeamMemberDto {
   role: string;
 
   @IsDefined()
-  @IsBoolean()
-  sendEmail: boolean;
+  @IsString()
+  @MinLength(8)
+  password: string;
+
+  @IsDefined()
+  @IsString()
+  @MinLength(8)
+  passwordConfirm: string;
+
+  @IsDefined()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  integrations: string[];
 }

@@ -133,6 +133,7 @@ model UserOrganization {
   organizationId String
   disabled       Boolean      @default(false)
   role           Role         @default(USER)
+  allowedIntegrations Json?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
