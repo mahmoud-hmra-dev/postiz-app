@@ -143,6 +143,35 @@ export class IntegrationRepository {
   }
 
   async updateIntegration(id: string, params: Partial<Integration>) {
+    const existingIntegration = await this._integration.model.integration.findUnique({
+      where: {
+        id,
+      },
+      select: {
+        organizationId: true,
+      },
+    });
+
+    if (!existingIntegration) {
+      throw new Error('Integration not found');
+    }
+
+    if (params.internalId) {
+      await this._integration.model.integration.updateMany({
+        where: {
+          organizationId: existingIntegration.organizationId,
+          internalId: params.internalId,
+          id: {
+            not: id,
+          },
+        },
+        data: {
+          internalId: makeId(10),
+          deletedAt: new Date(),
+        },
+      });
+    }
+
     if (
       params.picture &&
       (params.picture.indexOf(process.env.CLOUDFLARE_BUCKET_URL!) === -1 ||
