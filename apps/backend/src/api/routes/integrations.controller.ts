@@ -558,7 +558,10 @@ export class IntegrationsController {
   @Post('/instagram/:id')
   async saveInstagram(
     @Param('id') id: string,
-    @Body() body: { pageId: string; id: string },
+    @Body()
+    body:
+      | { pageId: string; id: string }
+      | { pages: { pageId: string; id: string }[] },
     @GetOrgFromRequest() org: Organization
   ) {
     return this._integrationService.saveInstagram(org.id, id, body);
@@ -567,19 +570,19 @@ export class IntegrationsController {
   @Post('/facebook/:id')
   async saveFacebook(
     @Param('id') id: string,
-    @Body() body: { page: string },
+    @Body() body: { page: string } | { pages: string[] },
     @GetOrgFromRequest() org: Organization
   ) {
-    return this._integrationService.saveFacebook(org.id, id, body.page);
+    return this._integrationService.saveFacebook(org.id, id, body);
   }
 
   @Post('/linkedin-page/:id')
   async saveLinkedin(
     @Param('id') id: string,
-    @Body() body: { page: string },
+    @Body() body: { page: string } | { pages: string[] },
     @GetOrgFromRequest() org: Organization
   ) {
-    return this._integrationService.saveLinkedin(org.id, id, body.page);
+    return this._integrationService.saveLinkedin(org.id, id, body);
   }
 
   @Post('/enable')

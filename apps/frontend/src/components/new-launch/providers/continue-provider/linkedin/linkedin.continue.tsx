@@ -17,10 +17,7 @@ export const LinkedinContinue: FC<{
 
   const call = useCustomProviderFunction();
   const { integration } = useIntegration();
-  const [page, setSelectedPage] = useState<null | {
-    id: string;
-    pageId: string;
-  }>(null);
+  const [pages, setSelectedPages] = useState<string[]>([]);
   const fetch = useFetch();
   const loadPages = useCallback(async () => {
     try {
@@ -30,12 +27,15 @@ export const LinkedinContinue: FC<{
       closeModal();
     }
   }, []);
-  const setPage = useCallback(
-    (param: { id: string; pageId: string }) => () => {
-      setSelectedPage(param);
-    },
-    []
-  );
+  const togglePage = useCallback((id: string) => {
+    setSelectedPages((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((pageId) => pageId !== id);
+      }
+
+      return [...prev, id];
+    });
+  }, []);
   const { data, isLoading } = useSWR('load-pages', loadPages, {
     refreshWhenHidden: false,
     refreshWhenOffline: false,
@@ -48,10 +48,10 @@ export const LinkedinContinue: FC<{
   const saveLinkedin = useCallback(async () => {
     await fetch(`/integrations/linkedin-page/${integration?.id}`, {
       method: 'POST',
-      body: JSON.stringify(page),
+      body: JSON.stringify({ pages }),
     });
     closeModal();
-  }, [integration, page]);
+  }, [integration, pages]);
   const filteredData = useMemo(() => {
     return (
       data?.filter((p: { id: string }) => !existingId.includes(p.id)) || []
@@ -88,9 +88,9 @@ export const LinkedinContinue: FC<{
               key={p.id}
               className={clsx(
                 'flex flex-col w-full text-center gap-[10px] border border-input p-[10px] hover:bg-seventh',
-                page?.id === p.id && 'bg-seventh'
+                pages.includes(p.id) && 'bg-seventh'
               )}
-              onClick={setPage(p)}
+              onClick={() => togglePage(p.id)}
             >
               <div>
                 <img className="w-full" src={p.picture} alt="profile" />
@@ -101,7 +101,7 @@ export const LinkedinContinue: FC<{
         )}
       </div>
       <div>
-        <Button disabled={!page} onClick={saveLinkedin}>
+        <Button disabled={!pages.length} onClick={saveLinkedin}>
           {t('save', 'Save')}
         </Button>
       </div>

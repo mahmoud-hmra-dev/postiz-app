@@ -15,7 +15,7 @@ export const FacebookContinue: FC<{
   const { closeModal, existingId } = props;
   const call = useCustomProviderFunction();
   const { integration } = useIntegration();
-  const [page, setSelectedPage] = useState<null | string>(null);
+  const [pages, setSelectedPages] = useState<string[]>([]);
   const fetch = useFetch();
   const loadPages = useCallback(async () => {
     try {
@@ -25,12 +25,15 @@ export const FacebookContinue: FC<{
       closeModal();
     }
   }, []);
-  const setPage = useCallback(
-    (id: string) => () => {
-      setSelectedPage(id);
-    },
-    []
-  );
+  const togglePage = useCallback((id: string) => {
+    setSelectedPages((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((pageId) => pageId !== id);
+      }
+
+      return [...prev, id];
+    });
+  }, []);
   const { data, isLoading } = useSWR('load-pages', loadPages, {
     refreshWhenHidden: false,
     refreshWhenOffline: false,
@@ -42,15 +45,15 @@ export const FacebookContinue: FC<{
   });
   const t = useT();
 
-  const saveInstagram = useCallback(async () => {
+  const saveFacebook = useCallback(async () => {
     await fetch(`/integrations/facebook/${integration?.id}`, {
       method: 'POST',
       body: JSON.stringify({
-        page,
+        pages,
       }),
     });
     closeModal();
-  }, [integration, page]);
+  }, [integration, pages]);
   const filteredData = useMemo(() => {
     return (
       data?.filter((p: { id: string }) => !existingId.includes(p.id)) || []
@@ -95,9 +98,9 @@ export const FacebookContinue: FC<{
               key={p.id}
               className={clsx(
                 'flex flex-col w-full text-center gap-[10px] border border-input p-[10px] hover:bg-seventh',
-                page === p.id && 'bg-seventh'
+                pages.includes(p.id) && 'bg-seventh'
               )}
-              onClick={setPage(p.id)}
+              onClick={() => togglePage(p.id)}
             >
               <div>
                 <img
@@ -112,7 +115,7 @@ export const FacebookContinue: FC<{
         )}
       </div>
       <div>
-        <Button disabled={!page} onClick={saveInstagram}>
+        <Button disabled={!pages.length} onClick={saveFacebook}>
           {t('save', 'Save')}
         </Button>
       </div>

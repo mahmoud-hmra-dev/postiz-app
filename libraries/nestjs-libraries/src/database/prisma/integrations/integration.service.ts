@@ -268,10 +268,32 @@ export class IntegrationService {
     return this._integrationRepository.checkForDeletedOnceAndUpdate(org, page);
   }
 
+  private parseAdditionalSettings(settings?: string | null) {
+    if (!settings) {
+      return undefined;
+    }
+    try {
+      const parsed = JSON.parse(settings);
+      return Array.isArray(parsed) ? parsed : undefined;
+    } catch (err) {
+      return undefined;
+    }
+  }
+
+  private getRemainingTokenLifetimeSeconds(integration: Integration) {
+    if (!integration.tokenExpiration) {
+      return 0;
+    }
+
+    const diff = dayjs(integration.tokenExpiration).diff(dayjs(), 'second');
+
+    return diff > 0 ? diff : 0;
+  }
+
   async saveInstagram(
     org: string,
     id: string,
-    data: { pageId: string; id: string }
+    data: { pageId: string; id: string } | { pages: { pageId: string; id: string }[] }
   ) {
     const getIntegration = await this._integrationRepository.getIntegrationById(
       org,
@@ -284,25 +306,95 @@ export class IntegrationService {
     const instagram = this._integrationManager.getSocialIntegration(
       'instagram'
     ) as InstagramProvider;
-    const getIntegrationInformation = await instagram.fetchPageInformation(
-      getIntegration?.token!,
-      data
+    const instagramOneTimeToken = Boolean(
+      (instagram as SocialProvider).oneTimeToken
+    );
+    if (!getIntegration?.token) {
+      throw new HttpException('Invalid integration', HttpStatus.BAD_REQUEST);
+    }
+
+    const selections = Array.isArray((data as any)?.pages)
+      ? (data as { pages: { pageId: string; id: string }[] }).pages
+      : [data as { pageId: string; id: string }];
+
+    const uniqueSelections: { pageId: string; id: string }[] = [];
+    const seen = new Set<string>();
+    for (const selection of selections) {
+      if (!selection?.id || !selection?.pageId) {
+        continue;
+      }
+      if (seen.has(selection.id)) {
+        continue;
+      }
+      seen.add(selection.id);
+      uniqueSelections.push(selection);
+    }
+
+    if (!uniqueSelections.length) {
+      throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
+    }
+
+    const pageInformation = await Promise.all(
+      uniqueSelections.map((selection) =>
+        instagram.fetchPageInformation(getIntegration.token!, selection)
+      )
     );
 
-    await this.checkForDeletedOnceAndUpdate(org, getIntegrationInformation.id);
+    const [primary, ...additional] = pageInformation;
+
+    await this.checkForDeletedOnceAndUpdate(org, primary.id);
     await this._integrationRepository.updateIntegration(id, {
-      picture: getIntegrationInformation.picture,
-      internalId: getIntegrationInformation.id,
-      name: getIntegrationInformation.name,
+      picture: primary.picture,
+      internalId: primary.id,
+      name: primary.name,
       inBetweenSteps: false,
-      token: getIntegrationInformation.access_token,
-      profile: getIntegrationInformation.username,
+      token: primary.access_token,
+      profile: primary.username,
     });
+
+    if (additional.length) {
+      const additionalSettings = this.parseAdditionalSettings(
+        getIntegration.additionalSettings
+      );
+      const expiresIn = this.getRemainingTokenLifetimeSeconds(getIntegration);
+
+      for (const info of additional) {
+        await this.checkForDeletedOnceAndUpdate(org, info.id);
+        const upsert = await this._integrationRepository.createOrUpdateIntegration(
+          additionalSettings,
+          instagramOneTimeToken,
+          org,
+          info.name,
+          info.picture,
+          'social',
+          info.id,
+          getIntegration.providerIdentifier,
+          info.access_token,
+          getIntegration.refreshToken || '',
+          expiresIn,
+          info.username,
+          false,
+          undefined,
+          undefined,
+          getIntegration.customInstanceDetails || undefined
+        );
+
+        if (getIntegration.postingTimes) {
+          await this._integrationRepository.updateIntegration(upsert.id, {
+            postingTimes: getIntegration.postingTimes,
+          });
+        }
+      }
+    }
 
     return { success: true };
   }
 
-  async saveLinkedin(org: string, id: string, page: string) {
+  async saveLinkedin(
+    org: string,
+    id: string,
+    payload: { page: string } | { pages: string[] }
+  ) {
     const getIntegration = await this._integrationRepository.getIntegrationById(
       org,
       id
@@ -314,30 +406,87 @@ export class IntegrationService {
     const linkedin = this._integrationManager.getSocialIntegration(
       'linkedin-page'
     ) as LinkedinPageProvider;
+    const linkedinOneTimeToken = Boolean(
+      (linkedin as SocialProvider).oneTimeToken
+    );
+    if (!getIntegration?.token) {
+      throw new HttpException('Invalid integration', HttpStatus.BAD_REQUEST);
+    }
 
-    const getIntegrationInformation = await linkedin.fetchPageInformation(
-      getIntegration?.token!,
-      page
+    const selections = Array.isArray((payload as any)?.pages)
+      ? (payload as { pages: string[] }).pages
+      : [(payload as { page: string }).page];
+
+    const uniqueSelections = Array.from(
+      new Set(selections.filter((pageId) => !!pageId))
     );
 
-    await this.checkForDeletedOnceAndUpdate(
-      org,
-      String(getIntegrationInformation.id)
+    if (!uniqueSelections.length) {
+      throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
+    }
+
+    const pagesInformation = await Promise.all(
+      uniqueSelections.map((pageId) =>
+        linkedin.fetchPageInformation(getIntegration.token!, pageId)
+      )
     );
+
+    const [primary, ...additional] = pagesInformation;
+
+    await this.checkForDeletedOnceAndUpdate(org, String(primary.id));
 
     await this._integrationRepository.updateIntegration(String(id), {
-      picture: getIntegrationInformation.picture,
-      internalId: String(getIntegrationInformation.id),
-      name: getIntegrationInformation.name,
+      picture: primary.picture,
+      internalId: String(primary.id),
+      name: primary.name,
       inBetweenSteps: false,
-      token: getIntegrationInformation.access_token,
-      profile: getIntegrationInformation.username,
+      token: primary.access_token,
+      profile: primary.username,
     });
+
+    if (additional.length) {
+      const additionalSettings = this.parseAdditionalSettings(
+        getIntegration.additionalSettings
+      );
+      const expiresIn = this.getRemainingTokenLifetimeSeconds(getIntegration);
+
+      for (const info of additional) {
+        await this.checkForDeletedOnceAndUpdate(org, String(info.id));
+        const upsert = await this._integrationRepository.createOrUpdateIntegration(
+          additionalSettings,
+          linkedinOneTimeToken,
+          org,
+          info.name,
+          info.picture,
+          'social',
+          String(info.id),
+          getIntegration.providerIdentifier,
+          info.access_token,
+          getIntegration.refreshToken || '',
+          expiresIn,
+          info.username,
+          false,
+          undefined,
+          undefined,
+          getIntegration.customInstanceDetails || undefined
+        );
+
+        if (getIntegration.postingTimes) {
+          await this._integrationRepository.updateIntegration(upsert.id, {
+            postingTimes: getIntegration.postingTimes,
+          });
+        }
+      }
+    }
 
     return { success: true };
   }
 
-  async saveFacebook(org: string, id: string, page: string) {
+  async saveFacebook(
+    org: string,
+    id: string,
+    payload: { page: string } | { pages: string[] }
+  ) {
     const getIntegration = await this._integrationRepository.getIntegrationById(
       org,
       id
@@ -349,20 +498,77 @@ export class IntegrationService {
     const facebook = this._integrationManager.getSocialIntegration(
       'facebook'
     ) as FacebookProvider;
-    const getIntegrationInformation = await facebook.fetchPageInformation(
-      getIntegration?.token!,
-      page
+    const facebookOneTimeToken = Boolean(
+      (facebook as SocialProvider).oneTimeToken
+    );
+    if (!getIntegration?.token) {
+      throw new HttpException('Invalid integration', HttpStatus.BAD_REQUEST);
+    }
+
+    const selections = Array.isArray((payload as any)?.pages)
+      ? (payload as { pages: string[] }).pages
+      : [(payload as { page: string }).page];
+
+    const uniqueSelections = Array.from(
+      new Set(selections.filter((pageId) => !!pageId))
     );
 
-    await this.checkForDeletedOnceAndUpdate(org, getIntegrationInformation.id);
+    if (!uniqueSelections.length) {
+      throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
+    }
+
+    const pagesInformation = await Promise.all(
+      uniqueSelections.map((pageId) =>
+        facebook.fetchPageInformation(getIntegration.token!, pageId)
+      )
+    );
+
+    const [primary, ...additional] = pagesInformation;
+
+    await this.checkForDeletedOnceAndUpdate(org, primary.id);
     await this._integrationRepository.updateIntegration(id, {
-      picture: getIntegrationInformation.picture,
-      internalId: getIntegrationInformation.id,
-      name: getIntegrationInformation.name,
+      picture: primary.picture,
+      internalId: primary.id,
+      name: primary.name,
       inBetweenSteps: false,
-      token: getIntegrationInformation.access_token,
-      profile: getIntegrationInformation.username,
+      token: primary.access_token,
+      profile: primary.username,
     });
+
+    if (additional.length) {
+      const additionalSettings = this.parseAdditionalSettings(
+        getIntegration.additionalSettings
+      );
+      const expiresIn = this.getRemainingTokenLifetimeSeconds(getIntegration);
+
+      for (const info of additional) {
+        await this.checkForDeletedOnceAndUpdate(org, info.id);
+        const upsert = await this._integrationRepository.createOrUpdateIntegration(
+          additionalSettings,
+          facebookOneTimeToken,
+          org,
+          info.name,
+          info.picture,
+          'social',
+          info.id,
+          getIntegration.providerIdentifier,
+          info.access_token,
+          getIntegration.refreshToken || '',
+          expiresIn,
+          info.username,
+          false,
+          undefined,
+          undefined,
+          getIntegration.customInstanceDetails || undefined
+        );
+
+        if (getIntegration.postingTimes) {
+          await this._integrationRepository.updateIntegration(upsert.id, {
+            postingTimes: getIntegration.postingTimes,
+          });
+        }
+      }
+    }
 
     return { success: true };
   }
