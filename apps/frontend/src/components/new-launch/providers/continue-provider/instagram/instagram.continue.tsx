@@ -15,10 +15,7 @@ export const InstagramContinue: FC<{
   const { closeModal, existingId } = props;
   const call = useCustomProviderFunction();
   const { integration } = useIntegration();
-  const [page, setSelectedPage] = useState<null | {
-    id: string;
-    pageId: string;
-  }>(null);
+  const [pages, setSelectedPages] = useState<{ id: string; pageId: string }[]>([]);
   const fetch = useFetch();
   const loadPages = useCallback(async () => {
     try {
@@ -30,12 +27,15 @@ export const InstagramContinue: FC<{
   }, []);
   const t = useT();
 
-  const setPage = useCallback(
-    (param: { id: string; pageId: string }) => () => {
-      setSelectedPage(param);
-    },
-    []
-  );
+  const togglePage = useCallback((param: { id: string; pageId: string }) => {
+    setSelectedPages((prev) => {
+      if (prev.some((page) => page.id === param.id)) {
+        return prev.filter((page) => page.id !== param.id);
+      }
+
+      return [...prev, param];
+    });
+  }, []);
   const { data, isLoading } = useSWR('load-pages', loadPages, {
     refreshWhenHidden: false,
     refreshWhenOffline: false,
@@ -48,10 +48,10 @@ export const InstagramContinue: FC<{
   const saveInstagram = useCallback(async () => {
     await fetch(`/integrations/instagram/${integration?.id}`, {
       method: 'POST',
-      body: JSON.stringify(page),
+      body: JSON.stringify({ pages }),
     });
     closeModal();
-  }, [integration, page]);
+  }, [integration, pages]);
   const filteredData = useMemo(() => {
     return (
       data?.filter((p: { id: string }) => !existingId.includes(p.id)) || []
@@ -97,9 +97,9 @@ export const InstagramContinue: FC<{
               key={p.id}
               className={clsx(
                 'flex flex-col w-full text-center gap-[10px] border border-input p-[10px] hover:bg-seventh',
-                page?.id === p.id && 'bg-seventh'
+                pages.some((page) => page.id === p.id) && 'bg-seventh'
               )}
-              onClick={setPage(p)}
+              onClick={() => togglePage(p)}
             >
               <div>
                 <img
@@ -114,7 +114,7 @@ export const InstagramContinue: FC<{
         )}
       </div>
       <div>
-        <Button disabled={!page} onClick={saveInstagram}>
+        <Button disabled={!pages.length} onClick={saveInstagram}>
           {t('save', 'Save')}
         </Button>
       </div>
