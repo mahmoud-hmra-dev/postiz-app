@@ -104,6 +104,13 @@
 
 To have the project up and running, please follow the [Quick Start Guide](https://docs.postiz.com/quickstart)
 
+### Docker Compose requirements
+
+We recommend using the Docker Compose plugin (`docker compose`) instead of the legacy standalone binary (`docker-compose`).
+The standalone v1 binary is no longer maintained and can fail with errors such as `'ContainerConfig'` when used with modern
+Docker Engine releases. If you hit this error while running `docker-compose up`, upgrade to the Compose plugin or run the
+same command with `docker compose` to successfully start the services.
+
 ## Sponsor Postiz
 
 We now give a few options to Sponsor Postiz:
