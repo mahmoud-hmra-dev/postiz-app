@@ -1,6 +1,7 @@
 'use client';
 
 import { AddProviderButton } from '@gitroom/frontend/components/launches/add.provider.component';
+import { CreatePresentationLink } from '@gitroom/frontend/components/launches/create.presentation.link';
 import { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { groupBy, orderBy } from 'lodash';
@@ -526,6 +527,7 @@ export const LaunchesComponent = () => {
             <AddProviderButton update={() => update(true)} />
             <div className="flex gap-[8px] group-[.sidebar]:flex-col">
               {sortedIntegrations?.length > 0 && <NewPost />}
+              <CreatePresentationLink />
               {sortedIntegrations?.length > 0 &&
                 user?.tier?.ai &&
                 billingEnabled && <GeneratorComponent />}
