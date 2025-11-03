@@ -14,6 +14,7 @@ import { AddTeamMemberDto } from '@gitroom/nestjs-libraries/dtos/settings/add.te
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import clsx from 'clsx';
 const roles = [
   {
     name: 'User',
@@ -30,6 +31,68 @@ type IntegrationOption = {
   name: string;
   display?: string;
   identifier: string;
+};
+
+const PLATFORM_META: Record<
+  string,
+  {
+    translationKey: string;
+    label: string;
+    icon: string;
+    color: string;
+  }
+> = {
+  facebook: {
+    translationKey: 'facebook_pages',
+    label: 'Facebook Pages',
+    icon: '📘',
+    color: '#1877F2',
+  },
+  instagram: {
+    translationKey: 'instagram_accounts',
+    label: 'Instagram Accounts',
+    icon: '📸',
+    color: '#E4405F',
+  },
+  linkedin: {
+    translationKey: 'linkedin_pages',
+    label: 'LinkedIn Pages',
+    icon: '💼',
+    color: '#0A66C2',
+  },
+  default: {
+    translationKey: 'other_channels',
+    label: 'Other Channels',
+    icon: '🌐',
+    color: '#8B5CF6',
+  },
+};
+
+type PlatformMeta = (typeof PLATFORM_META)[keyof typeof PLATFORM_META];
+
+const hexToRgba = (hex: string, alpha: number) => {
+  let sanitized = hex.replace('#', '');
+  if (sanitized.length === 3) {
+    sanitized = sanitized
+      .split('')
+      .map((char) => char + char)
+      .join('');
+  }
+  const bigint = parseInt(sanitized, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const getPlatformKey = (identifier?: string) => {
+  if (!identifier) {
+    return 'default';
+  }
+  const normalized = identifier.toLowerCase();
+  return Object.keys(PLATFORM_META).find(
+    (key) => key !== 'default' && normalized.includes(key)
+  ) || 'default';
 };
 
 export const AddMember = () => {
@@ -69,6 +132,42 @@ export const AddMember = () => {
   });
 
   const t = useT();
+
+  const groupedIntegrations = useMemo(() => {
+    const groups = new Map<string, { meta: PlatformMeta; options: IntegrationOption[] }>();
+
+    (integrations || []).forEach((integration) => {
+      const platformKey = getPlatformKey(integration.identifier);
+      const meta = PLATFORM_META[platformKey] || PLATFORM_META.default;
+      const existing = groups.get(platformKey);
+      if (existing) {
+        existing.options.push(integration);
+        return;
+      }
+      groups.set(platformKey, {
+        meta,
+        options: [integration],
+      });
+    });
+
+    return Array.from(groups.entries())
+      .map(([key, group]) => ({
+        key,
+        meta: group.meta,
+        options: group.options.sort((a, b) => {
+          const first = (a.display || a.name).toLowerCase();
+          const second = (b.display || b.name).toLowerCase();
+          if (first < second) {
+            return -1;
+          }
+          if (first > second) {
+            return 1;
+          }
+          return 0;
+        }),
+      }))
+      .sort((first, second) => first.meta.label.localeCompare(second.meta.label));
+  }, [integrations]);
 
   const submit = useCallback(
     async (values: {
@@ -153,31 +252,73 @@ export const AddMember = () => {
                   field.onChange([...current, id]);
                 };
 
+                if (!groupedIntegrations.length) {
+                  return (
+                    <div className="max-h-[200px] overflow-y-auto rounded-[4px] border border-customColor21 p-[12px] flex flex-col gap-[8px] text-[14px] text-customColor18">
+                      {t('no_integrations_available', 'No pages available yet')}
+                    </div>
+                  );
+                }
+
                 return (
-                  <div className="max-h-[200px] overflow-y-auto rounded-[4px] border border-customColor21 p-[12px] flex flex-col gap-[8px]">
-                    {(integrations || []).map((integration) => {
-                      const isChecked = selectedIds.includes(integration.id);
-                      return (
-                        <label
-                          key={integration.id}
-                          className="flex items-center gap-[8px] text-[14px] cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            className="accent-primary"
-                            checked={isChecked}
-                            onChange={toggleIntegration(integration.id)}
-                            onBlur={field.onBlur}
-                          />
-                          <span>{integration.display || integration.name}</span>
-                        </label>
-                      );
-                    })}
-                    {!(integrations || []).length && (
-                      <div className="text-[14px] text-customColor18">
-                        {t('no_integrations_available', 'No pages available yet')}
+                  <div className="max-h-[200px] overflow-y-auto rounded-[4px] border border-customColor21 p-[12px] flex flex-col gap-[12px]">
+                    {groupedIntegrations.map(({ key, meta, options }) => (
+                      <div
+                        key={key}
+                        className="flex flex-col gap-[10px] rounded-[6px] border border-customColor21 p-[10px]"
+                        style={{
+                          backgroundColor: hexToRgba(meta.color, 0.05),
+                        }}
+                      >
+                        <div className="flex items-center gap-[8px]">
+                          <div
+                            className="flex h-[32px] w-[32px] items-center justify-center rounded-full text-[16px]"
+                            style={{
+                              backgroundColor: hexToRgba(meta.color, 0.12),
+                              color: meta.color,
+                            }}
+                          >
+                            {meta.icon}
+                          </div>
+                          <span className="text-[14px] font-medium text-customColor18">
+                            {t(meta.translationKey, meta.label)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-[8px]">
+                          {options.map((integration) => {
+                            const isChecked = selectedIds.includes(integration.id);
+                            return (
+                              <label
+                                key={integration.id}
+                                className={clsx(
+                                  'flex items-center gap-[10px] rounded-[6px] border border-customColor21 px-[12px] py-[8px] text-[13px] text-customColor18 transition-colors cursor-pointer',
+                                  isChecked && 'shadow-[0_2px_8px_rgba(15,15,15,0.12)]'
+                                )}
+                                style={
+                                  isChecked
+                                    ? {
+                                        borderColor: meta.color,
+                                        backgroundColor: hexToRgba(meta.color, 0.1),
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="accent-primary"
+                                  checked={isChecked}
+                                  onChange={toggleIntegration(integration.id)}
+                                  onBlur={field.onBlur}
+                                />
+                                <span className="truncate">
+                                  {integration.display || integration.name}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
                 );
               }}
