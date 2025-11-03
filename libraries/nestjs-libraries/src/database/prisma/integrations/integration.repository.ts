@@ -172,12 +172,12 @@ export class IntegrationRepository {
       });
     }
 
-    if (
-      params.picture &&
-      (params.picture.indexOf(process.env.CLOUDFLARE_BUCKET_URL!) === -1 ||
-        params.picture.indexOf(process.env.FRONTEND_URL!) === -1)
-    ) {
-      params.picture = await this.storage.uploadSimple(params.picture);
+    if (params.picture && !this.isInternalPicture(params.picture)) {
+      try {
+        params.picture = await this.storage.uploadSimple(params.picture);
+      } catch (error) {
+        console.error('Failed to upload integration picture', error);
+      }
     }
 
     return this._integration.model.integration.update({
@@ -658,5 +658,15 @@ export class IntegrationRepository {
         postingTimes: true,
       },
     });
+  }
+
+  private isInternalPicture(url: string) {
+    const bucketUrl = process.env.CLOUDFLARE_BUCKET_URL;
+    const frontendUrl = process.env.FRONTEND_URL;
+
+    const matchesBucket = bucketUrl ? url.includes(bucketUrl) : false;
+    const matchesFrontend = frontendUrl ? url.includes(frontendUrl) : false;
+
+    return matchesBucket || matchesFrontend;
   }
 }
