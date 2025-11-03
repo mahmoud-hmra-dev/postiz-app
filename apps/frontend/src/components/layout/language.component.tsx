@@ -27,7 +27,6 @@ const getCountryCodeForFlag = (languageCode: string) => {
   if (languageCode === 'es') return 'ES';
   if (languageCode === 'ar') return 'SA';
   if (languageCode === 'zh') return 'CN';
-  if (languageCode === 'he') return 'IL';
   if (languageCode === 'ja') return 'JP';
   if (languageCode === 'ko') return 'KR';
 
